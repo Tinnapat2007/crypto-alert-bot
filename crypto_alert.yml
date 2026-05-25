@@ -1,0 +1,90 @@
+# =========================================================================
+# 🤖 AI Crypto Signal Bot — GitHub Actions Workflow
+# =========================================================================
+# รันอัตโนมัติทุก 15 นาที ตลอด 24 ชั่วโมง 7 วัน
+# ไม่ต้องเปิดแอป Streamlit เลย
+#
+# วิธีตั้งค่า:
+# 1. GitHub → Repository → Settings → Secrets and variables → Actions
+# 2. เพิ่ม Secrets ทั้ง 5 ตัว:
+#    DISCORD_BUY_STRONG, DISCORD_SELL_STRONG,
+#    DISCORD_BUY_NORMAL, DISCORD_SELL_NORMAL, DISCORD_HOLD
+# =========================================================================
+
+name: 🪙 Crypto Signal Alert
+
+on:
+  # ── รันตามเวลา (UTC) ─────────────────────────────────────────────────
+  # */15 = ทุก 15 นาที
+  # ปรับเป็น */30 ถ้าอยากทุก 30 นาที
+  # ปรับเป็น 0 * * * * ถ้าอยากทุกชั่วโมง
+  schedule:
+    - cron: "*/15 * * * *"
+
+  # ── กด Run ด้วยตัวเองได้จาก GitHub UI ──────────────────────────────
+  workflow_dispatch:
+    inputs:
+      coins:
+        description: "เหรียญที่ต้องการสแกน (คั่นด้วย comma)"
+        required: false
+        default: "BTC,ETH,SOL,DOGE,PEPE"
+
+jobs:
+  scan-and-alert:
+    name: 📡 Scan & Send Discord Alert
+    runs-on: ubuntu-latest
+    timeout-minutes: 10   # หมดเวลา 10 นาที ป้องกัน hang
+
+    steps:
+      # ── 1. Checkout โค้ด ──────────────────────────────────────────────
+      - name: 📂 Checkout Repository
+        uses: actions/checkout@v4
+
+      # ── 2. Cache state file (signal ล่าสุด) ──────────────────────────
+      # ป้องกันส่งซ้ำ แม้ GitHub Actions รันใหม่ทุกครั้ง
+      - name: 💾 Restore Signal State Cache
+        uses: actions/cache@v4
+        with:
+          path: signal_state.json
+          key: signal-state-${{ runner.os }}
+          restore-keys: signal-state-
+
+      # ── 3. ติดตั้ง Python ─────────────────────────────────────────────
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      # ── 4. ติดตั้ง Dependencies ───────────────────────────────────────
+      - name: 📦 Install Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install \
+            yfinance==0.2.38 \
+            pandas==2.2.2 \
+            ta==0.11.0 \
+            requests==2.31.0 \
+            urllib3==2.2.1
+
+      # ── 5. รัน Signal Bot ─────────────────────────────────────────────
+      - name: 🤖 Run Signal Bot
+        env:
+          DISCORD_BUY_STRONG:  ${{ secrets.DISCORD_BUY_STRONG }}
+          DISCORD_SELL_STRONG: ${{ secrets.DISCORD_SELL_STRONG }}
+          DISCORD_BUY_NORMAL:  ${{ secrets.DISCORD_BUY_NORMAL }}
+          DISCORD_SELL_NORMAL: ${{ secrets.DISCORD_SELL_NORMAL }}
+          DISCORD_HOLD:        ${{ secrets.DISCORD_HOLD }}
+        run: |
+          echo "🕐 Bangkok Time: $(TZ=Asia/Bangkok date)"
+          echo "📋 Starting scan..."
+          python signal_bot.py
+          echo "✅ Scan complete"
+
+      # ── 6. บันทึก State กลับ (สำคัญมาก) ─────────────────────────────
+      - name: 💾 Save Signal State
+        if: always()   # บันทึกแม้ step ก่อนหน้าพัง
+        uses: actions/cache/save@v4
+        with:
+          path: signal_state.json
+          key: signal-state-${{ runner.os }}-${{ github.run_id }}
